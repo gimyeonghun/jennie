@@ -61,10 +61,22 @@ defmodule Jennie do
   end
 
   defp find_next_tag(template, open, close) do
-    case String.split(template, open, parts: 2) do
-      [before, rest] ->
-        case String.split(rest, close, parts: 2) do
-          [tag_content, after_tag] ->
+    # Find the opening delimiter
+    case :binary.match(template, open) do
+      {start_pos, open_len} ->
+        before = binary_part(template, 0, start_pos)
+
+        rest =
+          binary_part(template, start_pos + open_len, byte_size(template) - start_pos - open_len)
+
+        # Find the closing delimiter after the opening
+        case :binary.match(rest, close) do
+          {end_pos, close_len} ->
+            tag_content = binary_part(rest, 0, end_pos)
+
+            after_tag =
+              binary_part(rest, end_pos + close_len, byte_size(rest) - end_pos - close_len)
+
             # Check for set delimiter tag
             new_delimiters =
               if String.starts_with?(tag_content, "=") and String.ends_with?(tag_content, "=") do
@@ -73,11 +85,11 @@ defmodule Jennie do
 
             {:ok, before, tag_content, after_tag, new_delimiters}
 
-          _ ->
+          :nomatch ->
             :not_found
         end
 
-      _ ->
+      :nomatch ->
         :not_found
     end
   end
@@ -114,7 +126,7 @@ defmodule Jennie do
         {inner_tokens, remaining} = parse_until_closing(rest, name, delimiters)
         {:section, name, remaining, inner_tokens}
 
-      # Unescaped variable (triple Jennie or &)
+      # Unescaped variable (triple mustache or &)
       String.starts_with?(content, "{") and String.ends_with?(content, "}") ->
         name = content |> String.trim_leading("{") |> String.trim_trailing("}") |> String.trim()
         {:token, {:variable, name, false}, delimiters}
@@ -139,7 +151,7 @@ defmodule Jennie do
     {open, close} = delimiters
     closing_tag = "/#{section_name}"
 
-    parse_section_content(template, [], section_name, {delimiters}, 0)
+    parse_section_content(template, [], section_name, delimiters, 0)
   end
 
   defp parse_section_content(template, acc, section_name, delimiters, depth) do
@@ -291,7 +303,7 @@ defmodule Jennie do
     end
   end
 
-  defp render_token({:partial, name}, context, partials, _delimiters) do
+  defp render_token({:partial, name}, context, partials, delimiters) do
     case Map.get(partials, name) do
       nil -> ""
       partial_template -> render(partial_template, context, partials)
@@ -349,7 +361,7 @@ defmodule Jennie do
 
   defp get_value(_context, _key), do: nil
 
-  defp resolve_value(value, _context) when is_function(value, 0) do
+  defp resolve_value(value, context) when is_function(value, 0) do
     value.()
   end
 
