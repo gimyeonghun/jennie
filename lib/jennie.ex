@@ -139,7 +139,7 @@ defmodule Jennie do
     {open, close} = delimiters
     closing_tag = "/#{section_name}"
 
-    parse_section_content(template, [], section_name, delimiters, 0)
+    parse_section_content(template, [], section_name, {delimiters}, 0)
   end
 
   defp parse_section_content(template, acc, section_name, delimiters, depth) do
@@ -220,8 +220,6 @@ defmodule Jennie do
 
   # Renderer implementation
   defp render_tokens(tokens, context, partials, delimiters) do
-    IO.inspect(tokens)
-
     tokens
     |> Enum.map(&render_token(&1, context, partials, delimiters))
     |> Enum.join()
@@ -293,7 +291,7 @@ defmodule Jennie do
     end
   end
 
-  defp render_token({:partial, name}, context, partials, delimiters) do
+  defp render_token({:partial, name}, context, partials, _delimiters) do
     case Map.get(partials, name) do
       nil -> ""
       partial_template -> render(partial_template, context, partials)
@@ -327,12 +325,14 @@ defmodule Jennie do
   # Context lookup with dotted name support
   defp lookup(".", context), do: context
 
-  defp lookup(name, context) do
+  defp lookup(name, context) when is_map(context) do
     case String.split(name, ".") do
       [single] -> get_value(context, single)
       parts -> lookup_dotted(parts, context)
     end
   end
+
+  defp lookup(_name, _context), do: nil
 
   defp lookup_dotted([], value), do: value
 
@@ -349,7 +349,7 @@ defmodule Jennie do
 
   defp get_value(_context, _key), do: nil
 
-  defp resolve_value(value, context) when is_function(value, 0) do
+  defp resolve_value(value, _context) when is_function(value, 0) do
     value.()
   end
 
