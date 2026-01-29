@@ -1,4 +1,6 @@
 defmodule Jennie.Compiler do
+  @default_engine Jennie.Engine
+
   def compile(source, data, opts) do
     line = opts[:line] || 1
     column = 1
@@ -9,30 +11,50 @@ defmodule Jennie.Compiler do
 
     case Jennie.Tokeniser.tokenise(source, line, column, tokeniser_options) do
       {:ok, tokens} ->
-        # state = %{
-        #   line: line,
-        #   start_line: nil,
-        #   start_column: nil
-        # }
+        state = %{
+          engine: opts[:engine] || @default_engine,
+          line: line,
+          start_line: line,
+          start_column: column,
+          data: data
+        }
 
-        Enum.reduce(tokens, "", fn token, acc ->
-          acc <> generate_buffer(token, data)
-        end)
+        init = state.engine.init(opts)
+
+        generate_buffer(tokens, init, [], state)
 
       {:error, line, column, message} ->
-        raise Jennie.SyntaxError, line: line, column: column, message: message
+        raise Jennie.SyntaxError,
+          message: message,
+          line: line,
+          column: column
     end
   end
 
-  defp generate_buffer({:text, _, _, charlist}, _data), do: to_string(charlist)
+  defp generate_buffer([{:text, line, column, chars} | rest], buffer, scope, state) do
+    meta = [line: line, column: column]
 
-  defp generate_buffer({:tag, _, _, _, charlist}, data) do
-    term = to_string(charlist)
-    field = String.trim(term)
-    String.replace(term, term, Map.get(data, field, ""))
+    buffer = state.engine.handle_text(buffer, meta, chars)
+
+    generate_buffer(rest, buffer, scope, state)
   end
 
-  defp generate_buffer({:eof, _, _}, _data) do
-    ""
+  defp generate_buffer([{:tag, line, column, _mark, chars} | rest], buffer, scope, state) do
+    meta = [line: line, column: column]
+
+    buffer = state.engine.handle_tag(buffer, meta, chars, state.data)
+
+    generate_buffer(rest, buffer, scope, state)
+  end
+
+  defp generate_buffer([{:eof, _, _}], buffer, [], state) do
+    state.engine.handle_body(buffer)
+  end
+
+  defp generate_buffer([{:eof, line, column}], _buffer, _scope, _state) do
+    raise Jennie.SyntaxError,
+      message: "unexpected end of string, expected a closing {{/<thing>}}",
+      line: line,
+      column: column
   end
 end

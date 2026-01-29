@@ -23,7 +23,10 @@ defmodule Jennie.Tokeniser do
         error
 
       {:ok, expr, new_line, new_column, rest} ->
-        acc = tokenize_text(buffer, acc)
+        {rest, new_line, new_column, buffer} =
+          trim_if_needed(rest, new_line, new_column, opts, buffer)
+
+        acc = tokenise_text(buffer, acc)
         final = {:tag, line, column, marker, expr}
         tokenise(rest, new_line, new_column, opts, [{new_line, new_column}], [final | acc])
     end
@@ -39,8 +42,10 @@ defmodule Jennie.Tokeniser do
 
   defp tokenise([], line, column, _opts, buffer, acc) do
     eof = {:eof, line, column}
-    {:ok, Enum.reverse([eof | tokenize_text(buffer, acc)])}
+    {:ok, Enum.reverse([eof | tokenise_text(buffer, acc)])}
   end
+
+  # Tokenise an expression until }} is found
 
   defp expr([?}, ?} | t], line, column, _opts, buffer) do
     {:ok, Enum.reverse(buffer), line, column + 2, t}
@@ -58,7 +63,9 @@ defmodule Jennie.Tokeniser do
     {:error, line, column, "missing token '}}'"}
   end
 
-  defp retrieve_marker([marker | t]) when marker in [?=, ?/, ?|] do
+  # Retrieve marker for {{
+
+  defp retrieve_marker([marker | t]) when marker in [?#, ?/, ?^] do
     {[marker], t}
   end
 
@@ -66,16 +73,26 @@ defmodule Jennie.Tokeniser do
     {~c"", t}
   end
 
-  # Tokenize the buffered text by appending
+  # Tokenise the buffered text by appending
   # it to the given accumulator.
 
-  defp tokenize_text([{_line, _column}], acc) do
+  defp tokenise_text([{_line, _column}], acc) do
     acc
   end
 
-  defp tokenize_text(buffer, acc) do
+  defp tokenise_text(buffer, acc) do
     [{line, column} | buffer] = Enum.reverse(buffer)
     [{:text, line, column, buffer} | acc]
+  end
+
+  defp trim_if_needed(rest, line, column, opts, buffer) do
+    if opts.trim do
+      buffer = trim_left(buffer, 0)
+      {rest, line, column} = trim_right(rest, line, column, 0, opts)
+      {rest, line, column, buffer}
+    else
+      {rest, line, column, buffer}
+    end
   end
 
   defp trim_init([h | t], line, column, opts) when h in @spaces,
@@ -91,4 +108,35 @@ defmodule Jennie.Tokeniser do
     do: {rest, line, column}
 
   defp trim_init(_, _, _, _), do: false
+
+  defp trim_left(buffer, count) do
+    case trim_whitespace(buffer, 0) do
+      {[?\n, ?\r | rest], _} -> trim_left(rest, count + 1)
+      {[?\n | rest], _} -> trim_left(rest, count + 1)
+      _ when count > 0 -> [?\n | buffer]
+      _ -> buffer
+    end
+  end
+
+  defp trim_right(rest, line, column, last_column, opts) do
+    case trim_whitespace(rest, column) do
+      {[?\r, ?\n | rest], column} ->
+        trim_right(rest, line + 1, opts.indentation + 1, column + 1, opts)
+
+      {[?\n | rest], column} ->
+        trim_right(rest, line + 1, opts.indentation + 1, column, opts)
+
+      {[], column} ->
+        {[], line, column}
+
+      _ when last_column > 0 ->
+        {[?\n | rest], line - 1, last_column}
+
+      _ ->
+        {rest, line, column}
+    end
+  end
+
+  defp trim_whitespace([h | t], column) when h in @spaces, do: trim_whitespace(t, column + 1)
+  defp trim_whitespace(list, column), do: {list, column}
 end

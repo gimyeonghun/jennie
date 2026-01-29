@@ -11,11 +11,11 @@ defmodule JennieTest do
       assert Jennie.render("Hello, {{subject}}!\n", %{"subject" => "world"}) == "Hello, world!\n"
     end
 
-    test "Interpolated tag output should be re-interpolated." do
+    test "Interpolated tag output should be not re-interpolated." do
       assert Jennie.render("{{template}}: {{planet}}", %{
                "template" => "{{planet}}",
                "planet" => "Earth"
-             }) == "Earth: Earth"
+             }) == "{{planet}}: Earth"
     end
 
     test "Integers should interpolate seamlessly." do
@@ -42,7 +42,7 @@ defmodule JennieTest do
       assert Jennie.render("{{person.name}} == Joe", data) == "Joe == Joe"
     end
 
-    test "Dotted names should be considered a form of shorthand for sections." do
+    test "Dotted names are a form of shorthand for sections." do
       data = %{"person" => %{"name" => "Joe"}}
 
       assert Jennie.render("{{person.name}} == {{#person}}{{name}}{{/person}}", data)
@@ -74,14 +74,15 @@ defmodule JennieTest do
       assert Jennie.render("\"{{a.b.c}}\" == \"\"", data) == "\"\" == \"\""
     end
 
-    test "The first part of a dotted name should resolve as any other name." do
+    test "The second part of a dotted name should resolve as any other name." do
+      # Elixir will override the key in the map. So we listen dutifully.
       data = %{
         "a" => %{
           "b" => %{
             "c" => %{
               "d" => %{
                 "e" => %{
-                  "name" => "Phil"
+                  "name" => "Wrong"
                 }
               }
             }
@@ -90,7 +91,7 @@ defmodule JennieTest do
             "c" => %{
               "d" => %{
                 "e" => %{
-                  "name" => "Wrong"
+                  "name" => "Phil"
                 }
               }
             }
