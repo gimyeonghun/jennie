@@ -55,6 +55,10 @@ defmodule Jennie.Tokeniser do
     expr(t, line + 1, opts.indentation + 1, opts, [?\n | buffer])
   end
 
+  defp expr(~c" " ++ t, line, column, opts, buffer) do
+    expr(t, line, column + 1, opts, buffer)
+  end
+
   defp expr([h | t], line, column, opts, buffer) do
     expr(t, line, column + 1, opts, [h | buffer])
   end

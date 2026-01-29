@@ -112,7 +112,7 @@ defmodule JennieTest do
         }
       }
 
-      assert Jennie.render("\"{{#a}}{{b.c}}{{/a}}", data) == ""
+      assert Jennie.render("{{#a}}{{b.c}}{{/a}}", data) == "ERROR"
     end
 
     test "Dotted names shall not be parsed as single, atomic keys" do

@@ -1,7 +1,7 @@
 defmodule Jennie.Compiler do
   @default_engine Jennie.Engine
 
-  def compile(source, data, opts) do
+  def compile(source, assigns, opts) do
     line = opts[:line] || 1
     column = 1
     indentation = opts[:indentation] || 0
@@ -16,7 +16,7 @@ defmodule Jennie.Compiler do
           line: line,
           start_line: line,
           start_column: column,
-          data: data
+          assigns: assigns
         }
 
         init = state.engine.init(opts)
@@ -39,12 +39,43 @@ defmodule Jennie.Compiler do
     generate_buffer(rest, buffer, scope, state)
   end
 
-  defp generate_buffer([{:tag, line, column, _mark, chars} | rest], buffer, scope, state) do
+  defp generate_buffer([{:tag, line, column, ~c"", chars} | rest], buffer, scope, state) do
     meta = [line: line, column: column]
 
-    buffer = state.engine.handle_tag(buffer, meta, chars, state.data)
+    buffer = state.engine.handle_tag(buffer, meta, chars, scope, state.assigns)
 
     generate_buffer(rest, buffer, scope, state)
+  end
+
+  defp generate_buffer([{:tag, _line, _column, ~c"#", chars} | rest], buffer, scope, state) do
+    section = IO.chardata_to_string(chars)
+    generate_buffer(rest, buffer, [section | scope], state)
+  end
+
+  defp generate_buffer([{:tag, line, column, ~c"/", _} | _], _buffer, scope, _state)
+       when length(scope) == 0 do
+    raise Jennie.SyntaxError,
+      message: "Cannot close section, because corresponding opening section is missing",
+      line: line,
+      column: column
+  end
+
+  defp generate_buffer([{:tag, line, column, ~c"/", chars} | rest], buffer, [h | t], state) do
+    if h == IO.chardata_to_string(chars) do
+      generate_buffer(rest, buffer, t, state)
+    else
+      raise Jennie.SyntaxError,
+        message: "Closing section prematurely",
+        line: line,
+        column: column
+    end
+  end
+
+  defp generate_buffer([{:eof, line, column}], _buffer, scope, _state) when length(scope) > 0 do
+    raise Jennie.SyntaxError,
+      message: "A section tag is still open",
+      line: line,
+      column: column
   end
 
   defp generate_buffer([{:eof, _, _}], buffer, [], state) do
