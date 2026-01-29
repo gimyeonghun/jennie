@@ -14,14 +14,13 @@ defmodule Jennie.Compiler do
         state = %{
           engine: opts[:engine] || @default_engine,
           line: line,
-          start_line: line,
-          start_column: column,
-          assigns: assigns
+          assigns: assigns,
+          scope: []
         }
 
         init = state.engine.init(opts)
 
-        generate_buffer(tokens, init, [], state)
+        generate_buffer(tokens, init, state)
 
       {:error, line, column, message} ->
         raise Jennie.SyntaxError,
@@ -31,38 +30,42 @@ defmodule Jennie.Compiler do
     end
   end
 
-  defp generate_buffer([{:text, line, column, chars} | rest], buffer, scope, state) do
-    meta = [line: line, column: column]
-
-    buffer = state.engine.handle_text(buffer, meta, chars)
-
-    generate_buffer(rest, buffer, scope, state)
+  defp generate_buffer([{:text, _, _, chars} | rest], buffer, state) do
+    buffer = state.engine.handle_text(buffer, chars)
+    generate_buffer(rest, buffer, state)
   end
 
-  defp generate_buffer([{:tag, line, column, ~c"", chars} | rest], buffer, scope, state) do
-    meta = [line: line, column: column]
-
-    buffer = state.engine.handle_tag(buffer, meta, chars, scope, state.assigns)
-
-    generate_buffer(rest, buffer, scope, state)
+  defp generate_buffer([{:tag, line, column, ~c"", expr} | rest], buffer, state) do
+    buffer = state.engine.handle_tag(buffer, {line, column}, expr, state)
+    generate_buffer(rest, buffer, state)
   end
 
-  defp generate_buffer([{:tag, _line, _column, ~c"#", chars} | rest], buffer, scope, state) do
-    section = IO.chardata_to_string(chars)
-    generate_buffer(rest, buffer, [section | scope], state)
+  defp generate_buffer(
+         [{:tag, line, column, ~c"#", expr} | rest],
+         buffer,
+         %{scope: scope} = state
+       ) do
+    buffer = state.engine.handle_context(buffer, {line, column}, expr, state)
+    token = Enum.join(expr, ".")
+    generate_buffer(rest, buffer, %{state | scope: [token | scope]})
   end
 
-  defp generate_buffer([{:tag, line, column, ~c"/", _} | _], _buffer, scope, _state)
-       when length(scope) == 0 do
+  defp generate_buffer([{:tag, line, column, ~c"/", _}], _buffer, %{scope: scope})
+       when length(scope) > 0 do
     raise Jennie.SyntaxError,
       message: "Cannot close section, because corresponding opening section is missing",
       line: line,
       column: column
   end
 
-  defp generate_buffer([{:tag, line, column, ~c"/", chars} | rest], buffer, [h | t], state) do
-    if h == IO.chardata_to_string(chars) do
-      generate_buffer(rest, buffer, t, state)
+  defp generate_buffer(
+         [{:tag, line, column, ~c"/", expr} | rest],
+         buffer,
+         %{scope: [head | tail]} = state
+       ) do
+    if head == IO.chardata_to_string(expr) do
+      buffer = state.engine.reset_context(buffer)
+      generate_buffer(rest, buffer, %{state | scope: tail})
     else
       raise Jennie.SyntaxError,
         message: "Closing section prematurely",
@@ -71,18 +74,18 @@ defmodule Jennie.Compiler do
     end
   end
 
-  defp generate_buffer([{:eof, line, column}], _buffer, scope, _state) when length(scope) > 0 do
+  defp generate_buffer([{:eof, line, column}], _buffer, %{scope: scope}) when length(scope) > 0 do
     raise Jennie.SyntaxError,
       message: "A section tag is still open",
       line: line,
       column: column
   end
 
-  defp generate_buffer([{:eof, _, _}], buffer, [], state) do
+  defp generate_buffer([{:eof, _, _}], buffer, %{scope: []} = state) do
     state.engine.handle_body(buffer)
   end
 
-  defp generate_buffer([{:eof, line, column}], _buffer, _scope, _state) do
+  defp generate_buffer([{:eof, line, column}], _buffer, _state) do
     raise Jennie.SyntaxError,
       message: "unexpected end of string, expected a closing {{/<thing>}}",
       line: line,

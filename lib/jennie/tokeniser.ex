@@ -27,7 +27,7 @@ defmodule Jennie.Tokeniser do
           trim_if_needed(rest, new_line, new_column, opts, buffer)
 
         acc = tokenise_text(buffer, acc)
-        final = {:tag, line, column, marker, expr}
+        final = {:tag, line, column, marker, token_key(expr, [], [])}
         tokenise(rest, new_line, new_column, opts, [{new_line, new_column}], [final | acc])
     end
   end
@@ -65,6 +65,21 @@ defmodule Jennie.Tokeniser do
 
   defp expr([], line, column, _opts, _buffer) do
     {:error, line, column, "missing token '}}'"}
+  end
+
+  # Parses the internal expression of a tag
+  defp token_key(~c"." ++ rest, current, acc) do
+    token = current |> Enum.reverse() |> IO.chardata_to_string()
+    token_key(rest, [], [token | acc])
+  end
+
+  defp token_key(~c"", current, acc) do
+    token = current |> Enum.reverse() |> IO.chardata_to_string()
+    Enum.reverse([token | acc])
+  end
+
+  defp token_key([h | t], current, acc) do
+    token_key(t, [h | current], acc)
   end
 
   # Retrieve marker for {{
